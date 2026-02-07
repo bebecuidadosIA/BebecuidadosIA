@@ -10,11 +10,11 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; margin: 0; }
-        .app-shell { max-width: 450px; margin: 0 auto; min-height: 100vh; background: white; display: flex; flex-direction: column; box-shadow: 0 4px 50px rgba(0,0,0,0.05); }
-        .fade-in { animation: fadeIn 0.4s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f1f5f9; margin: 0; }
+        .app-container { max-width: 450px; margin: 0 auto; min-height: 100vh; background: white; display: flex; flex-direction: column; position: relative; }
+        .tab-content { flex: 1; overflow-y: auto; padding-bottom: 80px; }
+        .nav-button { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 12px; gap: 4px; }
     </style>
 </head>
 <body>
@@ -23,7 +23,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // CONFIGURAÇÕES (URL e Chaves já configuradas)
+        // Configuração Supabase
         const SUPABASE_URL = "https://zvdoakrgrgvnhmwlqgnr.supabase.co"; 
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2ZG9ha3Jncmd2bmhtd2xxZ25yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NDEwMjksImV4cCI6MjA4NjAxNzAyOX0.-wkOsgmKKO0AH2Jo4GHyQcWkJDJwyeAPn_3kb3_4AsI";
         const GEMINI_KEY = "AIzaSyCU_3CjkJXn8TwpPB7TTkvhrkGZQ0wIAmg";
@@ -31,109 +31,89 @@
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         function App() {
-            const [view, setView] = useState('welcome'); // welcome, login, signup, quiz, home, chat
-            const [user, setUser] = useState(null);
+            const [session, setSession] = useState(null);
+            const [view, setView] = useState('welcome'); // welcome, login, signup, quiz, main
+            const [tab, setTab] = useState('home'); // home, chat, cardapio, receitas
+            const [bebe, setBebe] = useState({ nome: '', idade: '' });
             const [loading, setLoading] = useState(false);
-            const [errorMsg, setErrorMsg] = useState('');
-            
-            // Dados do Bebé (Quiz)
-            const [bebeData, setBebeData] = useState({ nome: '', idade: '', restricoes: '' });
-            
-            // Chat
-            const [chat, setChat] = useState([]);
+            const [chat, setChat] = useState([{ role: 'bot', text: 'Olá mamã! Como posso ajudar hoje? 👶' }]);
             const [input, setInput] = useState('');
 
+            // Verificar Login
             useEffect(() => {
-                const init = async () => {
-                    const { data: { session } } = await supabase.auth.getSession();
+                supabase.auth.getSession().then(({ data: { session } }) => {
                     if (session) {
-                        setUser(session.user);
-                        // Se logado, vamos para a home (ou quiz se não tiver dados, mas para simplificar, home)
-                        setView('home');
-                        setChat([{ role: 'bot', text: `Olá! Sou a Jeey. Como posso ajudar na alimentação do seu pequeno hoje? ✨` }]);
+                        setSession(session);
+                        setView('main');
                     }
-                };
-                init();
+                });
             }, []);
 
-            // FUNÇÕES DE AUTENTICAÇÃO
-            const handleAuth = async (e, type) => {
+            const handleLogin = async (e) => {
                 e.preventDefault();
                 setLoading(true);
-                setErrorMsg('');
-                const email = e.target.email.value;
-                const password = e.target.password.value;
-
-                try {
-                    const { data, error } = type === 'login' 
-                        ? await supabase.auth.signInWithPassword({ email, password })
-                        : await supabase.auth.signUp({ email, password });
-
-                    if (error) throw error;
-                    
-                    if (type === 'signup') {
-                        setView('quiz'); // Novos usuários vão para o Quiz
-                    } else {
-                        setUser(data.user);
-                        setView('home');
-                    }
-                } catch (err) {
-                    setErrorMsg(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : err.message);
-                } finally {
-                    setLoading(false);
-                }
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: e.target.email.value,
+                    password: e.target.password.value
+                });
+                if (error) alert("Erro: " + error.message);
+                else { setSession(data.session); setView('main'); }
+                setLoading(false);
             };
 
-            // INTELIGÊNCIA ARTIFICIAL
+            const handleSignup = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                const { data, error } = await supabase.auth.signUp({
+                    email: e.target.email.value,
+                    password: e.target.password.value
+                });
+                if (error) alert("Erro: " + error.message);
+                else setView('quiz');
+                setLoading(false);
+            };
+
             const askJeey = async () => {
-                if (!input.trim() || loading) return;
+                if (!input.trim()) return;
                 const userMsg = input;
-                setChat(prev => [...prev, { role: 'user', text: userMsg }]);
+                setChat([...chat, { role: 'user', text: userMsg }]);
                 setInput('');
                 setLoading(true);
 
                 try {
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: userMsg }] }],
-                            systemInstruction: { parts: [{ text: `És a Jeey, assistente de nutrição infantil. O bebé chama-se ${bebeData.nome}, tem ${bebeData.idade} e estas restrições: ${bebeData.restricoes}. Responde de forma carinhosa em PT-PT.` }] }
-                        })
+                        body: JSON.stringify({ contents: [{ parts: [{ text: userMsg }] }] })
                     });
-                    const data = await response.json();
-                    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Desculpe mamã, pode repetir?";
+                    const data = await res.json();
+                    const reply = data.candidates[0].content.parts[0].text;
                     setChat(prev => [...prev, { role: 'bot', text: reply }]);
                 } catch (e) {
-                    setChat(prev => [...prev, { role: 'bot', text: "Erro de conexão. Tente novamente!" }]);
-                } finally {
-                    setLoading(false);
+                    setChat(prev => [...prev, { role: 'bot', text: 'Estou com um soluço técnico. Tente de novo! 😅' }]);
                 }
+                setLoading(false);
             };
 
-            // --- TELAS ---
-
+            // TELAS INICIAIS
             if (view === 'welcome') return (
-                <div className="app-shell items-center justify-center p-8 bg-emerald-50 text-center fade-in">
-                    <div className="text-7xl mb-6">👶</div>
-                    <h1 className="text-4xl font-extrabold text-emerald-900 mb-2">BebéFood IA</h1>
-                    <p className="text-emerald-600 mb-12 font-medium leading-relaxed">O guia inteligente para a melhor fase do seu bebé.</p>
-                    <div className="w-full space-y-4">
-                        <button onClick={() => setView('login')} className="w-full bg-emerald-500 text-white py-5 rounded-2xl font-extrabold shadow-lg shadow-emerald-200">Entrar na Minha Conta</button>
-                        <button onClick={() => setView('signup')} className="w-full bg-white text-emerald-500 py-5 rounded-2xl font-extrabold border-2 border-emerald-100">Criar Acesso Agora</button>
-                    </div>
+                <div className="app-container p-10 flex flex-col items-center justify-center bg-emerald-50">
+                    <div className="text-7xl mb-8">👶</div>
+                    <h1 className="text-4xl font-black text-emerald-900 mb-2">BebéFood IA</h1>
+                    <p className="text-emerald-600 mb-12 text-center">Nutrição com amor para o seu bebé.</p>
+                    <button onClick={() => setView('login')} className="w-full bg-emerald-500 text-white py-5 rounded-3xl font-bold mb-4 shadow-lg">Entrar</button>
+                    <button onClick={() => setView('signup')} className="w-full bg-white text-emerald-500 py-5 rounded-3xl font-bold border border-emerald-200">Criar Conta</button>
                 </div>
             );
 
             if (view === 'login' || view === 'signup') return (
-                <div className="app-shell p-8 fade-in">
-                    <button onClick={() => setView('welcome')} className="text-emerald-500 font-bold mb-10 text-xs">← VOLTAR</button>
-                    <h2 className="text-3xl font-extrabold text-gray-900 mb-8">{view === 'login' ? 'Bem-vinda de volta!' : 'Começar Jornada'}</h2>
-                    <form onSubmit={(e) => handleAuth(e, view)} className="space-y-4">
-                        <input name="email" type="email" placeholder="Seu melhor e-mail" className="w-full p-5 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500" required />
-                        <input name="password" type="password" placeholder="Sua senha secreta" className="w-full p-5 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500" required />
-                        {errorMsg && <p className="text-red-500 text-xs font-bold px-2">{errorMsg}</p>}
-                        <button type="submit" disabled={loading} className="w-full bg-emerald-500 text-white py-5 rounded-2xl font-extrabold shadow-lg mt-4 disabled:opacity-50">
+                <div className="app-container p-8">
+                    <button onClick={() => setView('welcome')} className="text-emerald-500 font-bold mb-10 italic">← Voltar</button>
+                    <h2 className="text-3xl font-bold mb-8">{view === 'login' ? 'Bem-vinda!' : 'Nova Conta'}</h2>
+                    <form onSubmit={view === 'login' ? handleLogin : handleSignup} className="space-y-4">
+                        <input name="email" type="email" placeholder="E-mail" className="w-full p-5 bg-gray-50 border rounded-2xl outline-none" required />
+                        <input name="password" type="password" placeholder="Palavra-passe" className="w-full p-5 bg-gray-50 border rounded-2xl outline-none" required />
+                        <button type="submit" disabled={loading} className="w-full bg-emerald-500 text-white py-5 rounded-2xl font-bold shadow-lg">
                             {loading ? 'A carregar...' : 'Continuar'}
                         </button>
                     </form>
@@ -141,86 +121,120 @@
             );
 
             if (view === 'quiz') return (
-                <div className="app-shell p-8 fade-in">
-                    <div className="w-full bg-gray-100 h-2 rounded-full mb-10"><div className="bg-emerald-500 h-2 w-2/3 rounded-full"></div></div>
-                    <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Personalizar Plano</h2>
-                    <p className="text-gray-500 text-sm mb-8">Diga-nos um pouco sobre o seu pequeno tesouro.</p>
-                    <div className="space-y-6">
-                        <div>
-                            <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Nome do Bebé</label>
-                            <input value={bebeData.nome} onChange={e => setBebeData({...bebeData, nome: e.target.value})} className="w-full p-5 bg-gray-50 border rounded-2xl mt-2 outline-none" placeholder="Ex: Martim" />
-                        </div>
-                        <div>
-                            <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Idade do Bebé</label>
-                            <select value={bebeData.idade} onChange={e => setBebeData({...bebeData, idade: e.target.value})} className="w-full p-5 bg-gray-50 border rounded-2xl mt-2 outline-none appearance-none">
-                                <option value="">Selecionar...</option>
-                                <option value="6 meses">6 meses</option>
-                                <option value="7 a 9 meses">7 a 9 meses</option>
-                                <option value="10 a 12 meses">10 a 12 meses</option>
-                                <option value="Mais de 1 ano">Mais de 1 ano</option>
-                            </select>
-                        </div>
-                        <button onClick={() => setView('home')} className="w-full bg-emerald-500 text-white py-5 rounded-2xl font-extrabold shadow-lg mt-4">Ver Meu Plano Personalizado ✨</button>
-                    </div>
+                <div className="app-container p-8 text-center">
+                    <h2 className="text-2xl font-bold mb-6">Personalizar para o seu Bebé</h2>
+                    <input placeholder="Nome do Bebé" className="w-full p-5 border rounded-2xl mb-4" onChange={e => setBebe({...bebe, nome: e.target.value})} />
+                    <select className="w-full p-5 border rounded-2xl mb-8" onChange={e => setBebe({...bebe, idade: e.target.value})}>
+                        <option>Qual a idade?</option>
+                        <option>6 meses</option>
+                        <option>7-9 meses</option>
+                        <option>10-12 meses</option>
+                    </select>
+                    <button onClick={() => setView('main')} className="w-full bg-emerald-500 text-white py-5 rounded-2xl font-bold">Começar Agora ✨</button>
                 </div>
             );
 
-            if (view === 'home') return (
-                <div className="app-shell bg-gray-50">
-                    <header className="p-6 bg-white border-b flex justify-between items-center">
-                        <div>
-                            <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Plano do {bebeData.nome || 'Bebé'}</p>
-                            <h2 className="font-extrabold text-lg text-gray-800">Olá, Mamã! 👋</h2>
+            // SISTEMA PRINCIPAL (DASHBOARD COM TABS)
+            return (
+                <div className="app-container">
+                    <div className="tab-content">
+                        {/* HEADER FIXO */}
+                        <div className="p-6 bg-white border-b sticky top-0 flex justify-between items-center z-20">
+                            <h1 className="font-bold text-emerald-600">BebéFood IA</h1>
+                            <div className="text-[10px] bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full font-bold">PREMIUM</div>
                         </div>
-                        <button onClick={() => setView('welcome')} className="text-[10px] text-gray-300 font-bold uppercase underline">Sair</button>
-                    </header>
-                    <main className="p-6 space-y-6 overflow-y-auto">
-                        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-emerald-100">
-                            <h3 className="font-bold text-lg italic mb-2">Dica Personalizada ✨</h3>
-                            <p className="text-sm opacity-90 font-medium">Como o {bebeData.nome || 'seu bebé'} tem {bebeData.idade || '6 meses'}, foque em texturas macias e sabores naturais hoje!</p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 text-center shadow-sm active:scale-95 transition-all">
-                                <span className="text-4xl">📅</span>
-                                <p className="text-[10px] font-black text-gray-400 uppercase mt-2 tracking-widest">Cardápio</p>
-                            </div>
-                            <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 text-center shadow-sm active:scale-95 transition-all">
-                                <span className="text-4xl">🥘</span>
-                                <p className="text-[10px] font-black text-gray-400 uppercase mt-2 tracking-widest">Receitas</p>
-                            </div>
-                        </div>
-                        <button onClick={() => setView('chat')} className="w-full bg-emerald-500 p-6 rounded-[2.5rem] flex items-center gap-4 shadow-xl shadow-emerald-100 active:scale-95 transition-all">
-                            <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl">💬</div>
-                            <div className="text-left text-white">
-                                <p className="font-extrabold text-sm">Falar com Jeey IA</p>
-                                <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Assistente Nutricional</p>
-                            </div>
-                        </button>
-                    </main>
-                </div>
-            );
 
-            if (view === 'chat') return (
-                <div className="app-shell h-screen overflow-hidden flex flex-col">
-                    <header className="p-6 bg-white border-b flex justify-between items-center">
-                        <button onClick={() => setView('home')} className="text-emerald-500 font-bold text-xs uppercase tracking-tighter">← Painel</button>
-                        <h2 className="font-extrabold text-lg text-emerald-600">Jeey IA</h2>
-                        <div className="w-8"></div>
-                    </header>
-                    <main className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50">
-                        {chat.map((m, i) => (
-                            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`p-4 rounded-3xl max-w-[85%] text-sm font-medium shadow-sm ${m.role === 'user' ? 'bg-emerald-500 text-white rounded-tr-none' : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none'}`}>
-                                    {m.text}
+                        {tab === 'home' && (
+                            <div className="p-6 space-y-6">
+                                <div className="bg-emerald-500 p-8 rounded-[2.5rem] text-white shadow-xl">
+                                    <h3 className="font-bold text-xl mb-2">Olá, Mamã! 👋</h3>
+                                    <p className="text-sm opacity-90">Pronta para alimentar o {bebe.nome || 'seu bebé'} com saúde hoje?</p>
+                                </div>
+                                <div className="grid grid-cols-1 gap-4">
+                                    <div className="bg-white p-6 border rounded-3xl flex items-center gap-4">
+                                        <span className="text-3xl">🍏</span>
+                                        <div><p className="font-bold text-sm">Fruta do Dia</p><p className="text-xs text-gray-400">Maçã raspada</p></div>
+                                    </div>
+                                    <div className="bg-white p-6 border rounded-3xl flex items-center gap-4">
+                                        <span className="text-3xl">💧</span>
+                                        <div><p className="font-bold text-sm">Hidratação</p><p className="text-xs text-gray-400">Ofereça água após a papa</p></div>
+                                    </div>
                                 </div>
                             </div>
-                        ))}
-                        {loading && <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest animate-pulse px-4">Jeey está a escrever...</p>}
-                    </main>
-                    <footer className="p-4 bg-white border-t flex gap-2">
-                        <input value={input} onChange={e => setInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && askJeey()} placeholder="Sua dúvida..." className="flex-1 bg-gray-50 p-5 rounded-3xl text-sm outline-none border-none" />
-                        <button onClick={askJeey} className="bg-emerald-500 text-white w-14 rounded-3xl shadow-lg shadow-emerald-100 flex items-center justify-center text-xl active:scale-90 transition-all">🚀</button>
-                    </footer>
+                        )}
+
+                        {tab === 'cardapio' && (
+                            <div className="p-6 space-y-4">
+                                <h3 className="font-bold text-xl mb-6">📅 Cardápio da Semana</h3>
+                                <div className="p-5 border rounded-3xl bg-white shadow-sm">
+                                    <p className="font-bold text-emerald-600 mb-2">Segunda-feira</p>
+                                    <p className="text-sm text-gray-600">• Almoço: Puré de Cenoura e Frango</p>
+                                    <p className="text-sm text-gray-600">• Jantar: Papa de Aveia</p>
+                                </div>
+                                <div className="p-5 border rounded-3xl bg-white shadow-sm">
+                                    <p className="font-bold text-emerald-600 mb-2">Terça-feira</p>
+                                    <p className="text-sm text-gray-600">• Almoço: Creme de Abóbora</p>
+                                    <p className="text-sm text-gray-600">• Jantar: Leite Materno/Fórmula</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {tab === 'receitas' && (
+                            <div className="p-6 space-y-4">
+                                <h3 className="font-bold text-xl mb-6">🥘 Receitas Fáceis</h3>
+                                <div className="p-4 border rounded-2xl flex items-center gap-4 bg-white">
+                                    <span className="text-2xl">🥣</span>
+                                    <p className="font-bold text-sm">Papa de Banana e Abacate</p>
+                                </div>
+                                <div className="p-4 border rounded-2xl flex items-center gap-4 bg-white">
+                                    <span className="text-2xl">🥕</span>
+                                    <p className="font-bold text-sm">Puré de Cenoura Baby</p>
+                                </div>
+                                <div className="p-4 border rounded-2xl flex items-center gap-4 bg-white">
+                                    <span className="text-2xl">🍖</span>
+                                    <p className="font-bold text-sm">Caldinho de Vitela</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {tab === 'chat' && (
+                            <div className="flex flex-col h-[70vh] p-6">
+                                <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+                                    {chat.map((m, i) => (
+                                        <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`p-4 rounded-2xl max-w-[85%] text-sm ${m.role === 'user' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                                                {m.text}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2">
+                                    <input value={input} onChange={e => setInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && askJeey()} placeholder="Pergunte à Jeey..." className="flex-1 p-4 bg-gray-50 border rounded-2xl outline-none" />
+                                    <button onClick={askJeey} className="bg-emerald-500 text-white p-4 rounded-2xl">🚀</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* MENU DE NAVEGAÇÃO INFERIOR - SEMPRE VISÍVEL */}
+                    <nav className="fixed bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-white border-t flex justify-around p-2 z-30">
+                        <button onClick={() => setTab('home')} className={`nav-button ${tab === 'home' ? 'text-emerald-500' : 'text-gray-300'}`}>
+                            <span className="text-2xl">🏠</span>
+                            <span className="text-[9px] font-bold uppercase">Início</span>
+                        </button>
+                        <button onClick={() => setTab('cardapio')} className={`nav-button ${tab === 'cardapio' ? 'text-emerald-500' : 'text-gray-300'}`}>
+                            <span className="text-2xl">📅</span>
+                            <span className="text-[9px] font-bold uppercase">Plano</span>
+                        </button>
+                        <button onClick={() => setTab('receitas')} className={`nav-button ${tab === 'receitas' ? 'text-emerald-500' : 'text-gray-300'}`}>
+                            <span className="text-2xl">🥘</span>
+                            <span className="text-[9px] font-bold uppercase">Receitas</span>
+                        </button>
+                        <button onClick={() => setTab('chat')} className={`nav-button ${tab === 'chat' ? 'text-emerald-500' : 'text-gray-300'}`}>
+                            <span className="text-2xl">💬</span>
+                            <span className="text-[9px] font-bold uppercase">IA Jeey</span>
+                        </button>
+                    </nav>
                 </div>
             );
         }
